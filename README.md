@@ -872,116 +872,278 @@ Header-Name=value,Another-Header=value2
 }
 ```
 
-## Remote Access via HTTP Streamable Transport
+### Remote Access via HTTP Streamable Transport
 
-The server supports remote MCP communication via the standard **MCP Streamable HTTP Transport** (`StreamableHTTPServerTransport`), enabling centralized or multi-user deployments accessible over HTTP/SSE.
+The server provides first-class support for remote deployments using the official **MCP Streamable HTTP Transport** (`StreamableHTTPServerTransport`). This architecture allows you to host a single, centralized Bitbucket MCP service (in Docker, Kubernetes, or a remote Linux VM) and connect multiple developers and AI clients over HTTP and Server-Sent Events (SSE).
 
-### Starting in HTTP Mode
+### Architecture & Remote Topology
 
-You can start the server in HTTP mode using either CLI arguments or environment variables:
-
-**Using npm scripts:**
-```bash
-npm run start:http
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Developer Clients (Claude Desktop / Cursor / Antigravity)    │
+│  - Sends HTTP POST/GET to /mcp                              │
+│  - Passes user's Personal Access Token via Auth header      │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ HTTPS / SSE
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Reverse Proxy (Nginx / Cloudflare / Traefik / ALB)          │
+│  - TLS Termination, SSE Streaming (proxy_buffering off)     │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ HTTP (:3000)
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Bitbucket Server MCP Container (Streamable HTTP Server)     │
+│  - Isolates sessions by 'mcp-session-id'                    │
+│  - Applies dynamic Per-Client PAT or server fallback        │
+│  - Forwards custom headers (Zero Trust / Gateway)           │
+│  - Implements Read-Only mode safety filters                 │
+└──────────────────────────────┬──────────────────────────────┘
+                               │ Bitbucket REST API v1.0
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Atlassian Bitbucket Server / Data Center Instance           │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Using CLI flags:**
-```bash
-node build/index.js --transport=http --port=3000 --host=0.0.0.0
-```
+---
 
-**Using environment variables:**
-```bash
-MCP_TRANSPORT=http PORT=3000 node build/index.js
-```
+## Remote Docker Deployment Guide
 
-### Environment Variables & CLI Options
+### Option 1: Docker Compose (Recommended for Production)
 
-| Option / Variable | Flag | Default | Description |
-|-------------------|------|---------|-------------|
-| `MCP_TRANSPORT` | `--transport` | `stdio` | Transport mechanism: `stdio` or `http` |
-| `PORT` | `--port` | `3000` | HTTP port when running in `http` mode |
-| `HOST` | `--host` | `0.0.0.0` | Bind host when running in `http` mode |
-| `BITBUCKET_URL` | - | *(Required)* | Base URL of the Bitbucket Server/Data Center instance |
-| `BITBUCKET_TOKEN` | - | *(Optional)* | Default fallback PAT if client does not provide one |
+Docker Compose provides the most reproducible production deployment with built-in healthchecks, volume persistence, and automatic container restarts.
 
-### Authentication & Per-Client PAT
-
-When running over HTTP, the server provides flexible authentication:
-
-1. **Per-Client PAT (Authorization Header)**: Each client can pass their own personal Bitbucket access token via standard HTTP headers:
-   ```http
-   Authorization: Bearer <bitbucket_personal_access_token>
-   ```
-   *(Alternatively, `X-Bitbucket-Token: <token>` is also accepted).*
-
-2. **Automatic Fallback to Default PAT**: If a client does not supply an `Authorization` header, the server automatically falls back to `BITBUCKET_TOKEN` configured in the server environment.
-
-3. **Multi-User / Shared Server Setup**: You can run the server **without** setting `BITBUCKET_TOKEN`. In this mode, each user/client must provide their own PAT, preventing cross-user credential sharing. If no token is provided by the client or server, a `401 Unauthorized` JSON-RPC error is returned.
-
-### Endpoints
-
-- `POST /mcp` (or `POST /`): Handles JSON-RPC requests (e.g., `initialize`, `tools/list`, `tools/call`). For subsequent requests after initialization, pass `mcp-session-id: <session-id>`.
-- `GET /mcp` (or `GET /` with `Accept: text/event-stream`): SSE event stream for server notifications.
-- `DELETE /mcp`: Closes and cleans up the active session.
-- `GET /health`: Returns JSON health status, active session count, and configuration metadata.
-
-### Connecting Remote MCP Clients
-
-#### MCP Inspector
-```bash
-npx @modelcontextprotocol/inspector --transport streamableHttp --url http://localhost:3000/mcp
-```
-
-#### Docker Deployment
-
-**Using Docker Compose (Recommended):**
-
-1. Edit `.env` with your Bitbucket URL and optional default PAT:
+1. **Clone the repository and copy the environment template**:
    ```bash
-   cp .env.example .env   # (or edit the included .env directly)
-   ```
-2. Start the container:
-   ```bash
-   docker compose up -d --build
-   ```
-3. Check container logs:
-   ```bash
-   docker compose logs -f
-   ```
-4. Stop the container:
-   ```bash
-   docker compose down
+   git clone https://github.com/yashkolte3/bitbucket-server-mcp.git
+   cd bitbucket-server-mcp
+   cp .env.example .env
    ```
 
-**Using Standalone Docker:**
+2. **Configure `.env`**:
+   Edit `.env` to set your Bitbucket URL and desired authentication mode (see [Deployment Models & Fallback Hierarchy](#deployment-models--authentication-fallback-hierarchy) below).
+
+3. **Start the container**:
+   ```bash
+   docker compose up -d
+   ```
+
+4. **Verify Container Health**:
+   ```bash
+   curl -f http://localhost:3000/health
+   ```
+   Expected response:
+   ```json
+   {
+     "status": "ok",
+     "transport": "streamable-http",
+     "activeSessions": 0,
+     "bitbucketUrl": "https://bitbucket.yourcompany.com",
+     "readOnly": false
+   }
+   ```
+
+5. **View Logs**:
+   ```bash
+   docker compose logs -f bitbucket-mcp
+   ```
+
+6. **Stop or Restart**:
+   ```bash
+   docker compose down          # Stop
+   docker compose restart       # Restart
+   docker compose pull && docker compose up -d  # Update to latest image
+   ```
+
+---
+
+### Option 2: Standalone Container via Pre-Built Image (GHCR)
+
+You can launch the server instantly without cloning the repository using the pre-built multi-architecture container from GitHub Container Registry:
+
 ```bash
-docker build -t bitbucket-server-mcp .
-docker run -p 3000:3000 \
+docker run -d \
+  --name bitbucket-server-mcp \
+  --restart unless-stopped \
+  -p 3000:3000 \
   -e MCP_TRANSPORT=http \
-  -e BITBUCKET_URL=https://bitbucket.example.com \
-  -e BITBUCKET_TOKEN=optional-fallback-pat \
-  bitbucket-server-mcp
-```
-
-**Using Pre-built Container (GitHub Container Registry):**
-```bash
-docker run -p 3000:3000 \
-  -e MCP_TRANSPORT=http \
-  -e BITBUCKET_URL=https://bitbucket.example.com \
-  -e BITBUCKET_TOKEN=optional-fallback-pat \
+  -e HOST=0.0.0.0 \
+  -e PORT=3000 \
+  -e BITBUCKET_URL=https://bitbucket.yourcompany.com \
+  -e BITBUCKET_DEFAULT_PROJECT=PROJ \
+  -e BITBUCKET_READ_ONLY=false \
   ghcr.io/yashkolte3/bitbucket-server-mcp:latest
 ```
 
-#### Connecting Clients to Remote HTTP Server
+---
 
-When hosting the server on a remote VM or container, clients supporting HTTP/SSE transport can connect directly:
+## Configuration Reference
+
+The following environment variables configure the container and server:
+
+| Environment Variable | CLI Flag | Default | Required? | Description & Behavior |
+|---|---|---|---|---|
+| `BITBUCKET_URL` | - | *None* | **Yes** | Base URL of your Bitbucket Server / Data Center instance (e.g., `https://bitbucket.corp.internal`). Do not include a trailing slash. |
+| `MCP_TRANSPORT` | `--transport` | `stdio` | No | Transport protocol: `http` (for remote HTTP/SSE streaming) or `stdio` (for local stdin/stdout CLI execution). |
+| `PORT` | `--port` | `3000` | No | Port for the HTTP server to listen on when running in `http` mode. |
+| `HOST` | `--host` | `0.0.0.0` | No | Network interface to bind to. `0.0.0.0` allows connections from outside the Docker container. |
+| `BITBUCKET_TOKEN` | - | *None* | Optional | Server-wide fallback Personal Access Token (PAT). Used when a client does not provide an `Authorization` header. |
+| `BITBUCKET_DEFAULT_PROJECT` | - | *None* | Optional | Default Bitbucket project key. Used when tools are invoked without an explicit `project` argument. |
+| `BITBUCKET_READ_ONLY` | - | `false` | Optional | Set to `true` to block all mutating actions (PR creation, merging, approvals, commenting, branch deletion) at protocol level. |
+| `BITBUCKET_DIFF_MAX_LINES_PER_FILE` | - | *Unlimited* | Optional | Global cap on lines displayed per file in `get_diff`. Prevents huge generated files from exhausting AI context windows. Overridable per tool call via `maxLinesPerFile`. |
+| `BITBUCKET_CUSTOM_HEADERS` | - | *None* | Optional | Comma-separated key-value pairs (`Header1=Value1,Header2=Value2`) attached to all outgoing requests to Bitbucket. Used for Cloudflare Access service tokens, corporate proxies, or gateway auth. |
+| `BITBUCKET_LOG_PATH` | - | `~/.bitbucket-server-mcp/bitbucket.log` | Optional | Custom file path for Winston structured logs. |
+| `BITBUCKET_USERNAME` | - | *None* | Optional | Basic auth username (fallback only used if no token is available). |
+| `BITBUCKET_PASSWORD` | - | *None* | Optional | Basic auth password (fallback only used if no token is available). |
+
+---
+
+## Deployment Models & Authentication Fallback Hierarchy
+
+When running remotely over HTTP, authentication is dynamically evaluated on **every new session initialization (`POST /mcp` with `initialize` request)**.
+
+### Credential Resolution Hierarchy
+
+The server evaluates credentials in the following strict order:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Client initiates new session ('initialize' request)        │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                Does request have HTTP header?
+                - 'Authorization: Bearer <token>'
+                - 'Authorization: <token>'
+                - 'X-Bitbucket-Token: <token>'
+                               │
+               ┌───────────────┴───────────────┐
+              YES                              NO
+               │                               │
+               ▼                               ▼
+  Use Client Token                 Is BITBUCKET_TOKEN set
+  for this session!                in server environment?
+                                               │
+                               ┌───────────────┴───────────────┐
+                              YES                              NO
+                               │                               │
+                               ▼                               ▼
+                 Use Server Default PAT         Are BITBUCKET_USERNAME &
+                 for this session!              PASSWORD set in server env?
+                                                               │
+                                               ┌───────────────┴───────────────┐
+                                              YES                              NO
+                                               │                               │
+                                               ▼                               ▼
+                                  Use Basic Auth               Reject request with
+                                  for this session!            401 Unauthorized
+                                                               (-32000 JSON-RPC)
+```
+
+### Production Deployment Models
+
+Depending on your team structure and security policy, choose one of three deployment patterns:
+
+#### Model 1: Zero-Trust Multi-Tenant (Recommended for Teams)
+- **Configuration**: Set `BITBUCKET_URL`, but leave `BITBUCKET_TOKEN` **empty** on the server.
+- **How it works**: Every developer connects their AI client (Claude, Cursor, Antigravity) with their own Personal Access Token passed in the `Authorization: Bearer <PAT>` header.
+- **Security Benefits**:
+  - **Zero credential sharing**: The server holds no global credentials.
+  - **Audit trail accuracy**: PR reviews, comments, approvals, and merges in Bitbucket are attributed to the individual developer who performed them, rather than a generic bot.
+  - **Permission inheritance**: If a user lacks permission to access repository `X` in Bitbucket, their AI client will be denied access automatically.
+  - **Rejection**: Any client that attempts to connect without a token receives a `401 Unauthorized` error.
+
+#### Model 2: Central Service Account (Automation / Read-Only Sharing)
+- **Configuration**: Set `BITBUCKET_URL` and set `BITBUCKET_TOKEN` to a dedicated service account / bot PAT.
+- **How it works**: Developers can connect without configuring personal tokens; all actions default to the bot's permissions.
+- **Per-client override**: If any individual developer specifies an `Authorization` header in their client, the server dynamically switches to their personal token for that session.
+
+#### Model 3: Read-Only Audit & Exploration
+- **Configuration**: Set `BITBUCKET_READ_ONLY=true`.
+- **How it works**: All mutating tools (`create_pull_request`, `merge_pull_request`, `add_comment`, `approve_pull_request`, etc.) are hidden from tool discovery and rejected with an error if invoked.
+- **Use cases**: Safe for exploration in sensitive production codebases, security audits, and onboarding environments.
+
+---
+
+## Tool Fallback Behaviors
+
+| Feature | Primary Source | Fallback 1 | Fallback 2 / Default |
+|---|---|---|---|
+| **Project Key** | Tool call `project` parameter | `BITBUCKET_DEFAULT_PROJECT` env var | If both omitted, tools that operate across projects list all repositories; repo-scoped tools prompt for key |
+| **Diff Line Limit** | Tool call `maxLinesPerFile` parameter | `BITBUCKET_DIFF_MAX_LINES_PER_FILE` env var | Unlimited (all diff lines returned) |
+| **Authentication** | Client `Authorization: Bearer <token>` | Client `X-Bitbucket-Token: <token>` | Server `BITBUCKET_TOKEN` -> Server Basic Auth -> `401 Unauthorized` |
+| **Read-Only Mode** | `BITBUCKET_READ_ONLY=true` | Parameter / tool-level checks | Read-write allowed by default |
+
+---
+
+## Endpoints & Session Lifecycle
+
+The HTTP server implements the MCP Streamable HTTP specification:
+
+| Endpoint | Method | Purpose | Required Headers | Error Codes |
+|---|---|---|---|---|
+| `/mcp` (or `/`) | `POST` | Handles JSON-RPC requests (`initialize`, `tools/list`, `tools/call`, `ping`) | On `initialize`: `Authorization: Bearer <token>` (if multi-tenant).<br>On subsequent calls: `mcp-session-id: <session-id>` | `-32000` (Unauthorized: missing token)<br>`-32600` (Missing session ID)<br>`-32001` (Session expired)<br>`-32603` (Internal error) |
+| `/mcp` (or `/`) | `GET` | Establishes Server-Sent Events (SSE) stream for server notifications | `Accept: text/event-stream`<br>`mcp-session-id: <session-id>` | `400` (Missing session ID)<br>`404` (Session expired) |
+| `/mcp` | `DELETE` | Gracefully closes active session and disposes memory | `mcp-session-id: <session-id>` | `200 OK` (Session closed) |
+| `/health` | `GET` | Health check probe for Docker, Kubernetes, or load balancers | *None* | `200 OK` with JSON health report |
+
+---
+
+## Reverse Proxy & TLS Termination (Nginx / Cloudflare / Traefik)
+
+When hosting behind a reverse proxy (e.g. Nginx, Cloudflare, Traefik, or AWS ALB), **buffering must be disabled** so that Server-Sent Events (SSE) and HTTP streaming responses are delivered to AI clients without delay.
+
+### Nginx Example Configuration
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name mcp.yourcompany.com;
+
+    ssl_certificate     /etc/ssl/certs/mcp.crt;
+    ssl_certificate_key /etc/ssl/certs/mcp.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        # CRITICAL for MCP HTTP / SSE streaming:
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_set_header Connection '';
+        chunked_transfer_encoding off;
+
+        # Forward standard headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Forward MCP-specific headers
+        proxy_pass_header Authorization;
+        proxy_pass_header mcp-session-id;
+        proxy_pass_header mcp-protocol-version;
+
+        # Extend timeouts for long-running AI tool execution (e.g. large diffs or deep searches)
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+```
+
+---
+
+## Connecting Clients to Remote HTTP Server
+
+### Claude Desktop (`claude_desktop_config.json`)
+
+When connecting Claude Desktop to your remote server:
 
 ```json
 {
   "mcpServers": {
     "bitbucket": {
-      "url": "http://your-server-host:3000/mcp",
+      "url": "https://mcp.yourcompany.com/mcp",
       "headers": {
         "Authorization": "Bearer your-bitbucket-personal-access-token"
       }
@@ -989,6 +1151,43 @@ When hosting the server on a remote VM or container, clients supporting HTTP/SSE
   }
 }
 ```
+
+### Google Antigravity (`mcp_config.json`)
+
+```json
+{
+  "mcpServers": {
+    "bitbucket": {
+      "url": "https://mcp.yourcompany.com/mcp",
+      "headers": {
+        "Authorization": "Bearer your-bitbucket-personal-access-token"
+      }
+    }
+  }
+}
+```
+
+### Cursor / VS Code (`mcp.json`)
+
+```json
+{
+  "mcpServers": {
+    "bitbucket": {
+      "url": "https://mcp.yourcompany.com/mcp",
+      "headers": {
+        "Authorization": "Bearer your-bitbucket-personal-access-token"
+      }
+    }
+  }
+}
+```
+
+### Claude Code CLI
+
+```bash
+claude mcp add bitbucket --header "Authorization=Bearer your-bitbucket-personal-access-token" https://mcp.yourcompany.com/mcp
+```
+
 
 ---
 
