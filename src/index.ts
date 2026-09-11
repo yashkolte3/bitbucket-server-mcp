@@ -26,7 +26,7 @@ if (!fs.existsSync(logDir)) {
   fs.mkdirSync(logDir, { recursive: true });
 }
 
-const logger = winston.createLogger({
+export const logger = winston.createLogger({
   level: 'info',
   format: winston.format.json(),
   transports: [
@@ -208,8 +208,11 @@ export class BitbucketServer {
     );
 
     // Configuration initiale à partir des variables d'environnement
+    const rawBaseUrl = (options?.baseUrl ?? process.env.BITBUCKET_URL ?? '').trim().replace(/\/+$/, '');
+    const cleanBaseUrl = rawBaseUrl.replace(/\/rest\/api\/1\.0$/, '');
+
     this.config = {
-      baseUrl: options?.baseUrl ?? process.env.BITBUCKET_URL ?? '',
+      baseUrl: cleanBaseUrl,
       token: options?.token ?? process.env.BITBUCKET_TOKEN,
       username: options?.username ?? process.env.BITBUCKET_USERNAME,
       password: options?.password ?? process.env.BITBUCKET_PASSWORD,
@@ -2272,9 +2275,38 @@ if (
   process.argv[1] && 
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
 ) {
-  const server = new BitbucketServer();
-  server.run().catch((error) => {
-    logger.error('Server error', error);
-    process.exit(1);
-  });
+  const getCliArg = (flag: string): string | undefined => {
+    const prefix = `--${flag}=`;
+    for (let i = 2; i < process.argv.length; i++) {
+      const arg = process.argv[i];
+      if (arg.startsWith(prefix)) {
+        return arg.substring(prefix.length);
+      }
+      if (arg === `--${flag}` && i + 1 < process.argv.length) {
+        return process.argv[i + 1];
+      }
+    }
+    return undefined;
+  };
+
+  const transport = getCliArg('transport') || process.env.MCP_TRANSPORT || 'stdio';
+  const portStr = getCliArg('port') || process.env.PORT || '3000';
+  const port = parseInt(portStr, 10);
+  const host = getCliArg('host') || process.env.HOST || '0.0.0.0';
+
+  if (transport === 'http') {
+    import('./http.js')
+      .then(({ startHttpServer }) => startHttpServer(port, host))
+      .catch((error) => {
+        logger.error('HTTP server error', error);
+        console.error('HTTP server error:', error);
+        process.exit(1);
+      });
+  } else {
+    const server = new BitbucketServer();
+    server.run().catch((error) => {
+      logger.error('Server error', error);
+      process.exit(1);
+    });
+  }
 }

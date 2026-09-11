@@ -1,17 +1,50 @@
 {
-  "name": "bitbucket-server",
-  "version": "1.0.0",
-  "description": "MCP Server for Bitbucket Server PR management",
+  "name": "@yashkolte3/bitbucket-server-mcp",
+  "version": "1.1.0",
+  "description": "Bitbucket Server MCP - Model Context Protocol server for Bitbucket Server / Data Center with stdio and Streamable HTTP transports",
+  "author": "Yash Kolte",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yashkolte3/bitbucket-server-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yashkolte3/bitbucket-server-mcp/issues"
+  },
+  "homepage": "https://github.com/yashkolte3/bitbucket-server-mcp#readme",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "bitbucket",
+    "bitbucket-server",
+    "bitbucket-datacenter",
+    "streamable-http",
+    "remote-mcp",
+    "claude",
+    "antigravity"
+  ],
   "type": "module",
   "main": "build/index.js",
   "types": "build/index.d.ts",
   "bin": {
     "bitbucket-server-mcp": "./build/index.js"
   },
+  "files": [
+    "build",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "scripts": {
     "build": "tsc && node -e \"if (process.platform !== 'win32') require('child_process').execSync('chmod +x build/index.js')\"",
+    "prepare": "npm run build",
     "postinstall": "node -e \"const fs=require('fs'); if (process.platform !== 'win32' && fs.existsSync('build/index.js')) require('child_process').execSync('chmod +x build/index.js')\"",
     "start": "node build/index.js",
+    "start:http": "node build/index.js --transport=http",
     "dev": "tsc -w",
     "dev:server": "npm run build && npx @modelcontextprotocol/inspector -e DEBUG=true node build/index.js",
     "test": "vitest",
@@ -24,10 +57,14 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "axios": "^1.13.6",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "winston": "^3.19.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^25.3.5",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",

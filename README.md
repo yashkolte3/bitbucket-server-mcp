@@ -1,43 +1,40 @@
 # Bitbucket Server MCP
 
-MCP (Model Context Protocol) server for Bitbucket Server Pull Request management. This server provides tools and resources to interact with the Bitbucket Server API through the MCP protocol.
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![GitHub release](https://img.shields.io/github/v/release/yashkolte3/bitbucket-server-mcp?include_prereleases&color=blue)](https://github.com/yashkolte3/bitbucket-server-mcp/releases)
+[![CI Build](https://github.com/yashkolte3/bitbucket-server-mcp/actions/workflows/build.yml/badge.svg)](https://github.com/yashkolte3/bitbucket-server-mcp/actions/workflows/build.yml)
 
-[![smithery badge](https://smithery.ai/badge/@garc33/bitbucket-server-mcp-server)](https://smithery.ai/server/@garc33/bitbucket-server-mcp-server)
-<a href="https://glama.ai/mcp/servers/jskr5c1zq3"><img width="380" height="200" src="https://glama.ai/mcp/servers/jskr5c1zq3/badge" alt="Bitbucket Server MCP server" /></a>
+A feature-rich Model Context Protocol (MCP) server for **Bitbucket Server & Data Center**. It provides a comprehensive suite of tools to search repositories, manage pull requests, inspect code diffs, approve PRs, and collaborate directly from AI coding assistants.
 
-## ✨ New Features
+### 🌟 Key Highlights
+- **Dual Transport Support**: Run locally via standard `stdio` or host remotely via **MCP Streamable HTTP / SSE** (`--transport=http`).
+- **Multi-Client & Dynamic Authentication**: Connect multiple AI clients over HTTP with per-client personal access tokens (via `Authorization: Bearer <token>`).
+- **Complete PR Lifecycle**: List, create, review, comment (inline & general), approve, merge, or decline pull requests.
+- **Advanced Code & File Search**: Search code, view file contents, and browse repository trees.
+- **Zero Trust Ready**: Pass custom HTTP headers (`BITBUCKET_CUSTOM_HEADERS`) for Cloudflare Access, corporate proxies, or service tokens.
+- **Docker Ready**: Pre-built Docker container and `docker-compose.yml` with health checking.
 
-- **🔧 Custom HTTP Headers**: Add custom headers to all requests via `BITBUCKET_CUSTOM_HEADERS` environment variable (useful for Zero Trust tokens or proxies)
-- **📋 PR Discovery**: List and filter pull requests by state, author, or direction using `list_pull_requests` (fixes #14)
-- **🌿 Branch Management**: List branches with default branch detection using `list_branches`, delete merged branches with `delete_branch`
-- **📝 Commit History**: Browse commit history with branch and author filtering using `list_commits`
-- **✅ PR Approval**: Approve and unapprove pull requests with `approve_pull_request` and `unapprove_pull_request`
-- **🔍 Advanced Search**: Search code and files across repositories with project/repository filtering using the `search` tool
-- **📄 File Operations**: Read file contents and browse repository directories with `get_file_content` and `browse_repository`
-- **💬 Comment Management**: Extract and filter PR comments with `get_comments` tool
-- **🔍 Project Discovery**: List all accessible Bitbucket projects with `list_projects`
-- **📁 Repository Browsing**: Explore repositories across projects with `list_repositories`
-- **🔧 Flexible Project Support**: Make the default project optional - specify per command or use `BITBUCKET_DEFAULT_PROJECT`
-- **📖 Enhanced Documentation**: Improved README with usage examples and better configuration guidance
+---
 
-## Requirements
+## Quickstart
 
-- Node.js >= 16
-
-## Installation
-
-### Installing via Smithery
-
-To install Bitbucket Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@garc33/bitbucket-server-mcp-server):
-
+### 1. Direct Execution via `npx` (No Install Required)
+You can run this MCP server directly from GitHub without installing or cloning:
 ```bash
-npx -y @smithery/cli install @garc33/bitbucket-server-mcp-server --client claude
+npx -y github:yashkolte3/bitbucket-server-mcp
 ```
 
-### Manual Installation
-
+### 2. Install from GitHub Packages
 ```bash
+npm install -g @yashkolte3/bitbucket-server-mcp --registry=https://npm.pkg.github.com
+```
+
+### 3. Clone & Build Locally
+```bash
+git clone https://github.com/yashkolte3/bitbucket-server-mcp.git
+cd bitbucket-server-mcp
 npm install
+npm run build
 ```
 
 ## Build
@@ -674,35 +671,91 @@ merge_pull_request --repository "my-repo" --prId 123 --strategy "squash"
 
 ## Dependencies
 
-- `@modelcontextprotocol/sdk` - SDK for MCP protocol implementation
-- `axios` - HTTP client for API requests
-- `winston` - Logging framework
+- `@modelcontextprotocol/sdk` - Official TypeScript SDK for Model Context Protocol (stdio & Streamable HTTP)
+- `express` - High-performance web server for Streamable HTTP / SSE transport
+- `cors` - Cross-Origin Resource Sharing middleware
+- `axios` - HTTP client for Bitbucket REST API requests
+- `winston` - Robust structured logging framework
 
-## Configuration
+## Client Configuration
 
-The server requires configuration in the VSCode MCP settings file. Here's a sample configuration:
+You can run Bitbucket Server MCP either directly via `npx` (recommended, no clone needed) or via a locally cloned repository.
+
+### Option A: Direct execution with `npx` (Recommended)
+
+#### Claude Desktop (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "bitbucket": {
+      "command": "npx",
+      "args": ["-y", "github:yashkolte3/bitbucket-server-mcp"],
+      "env": {
+        "BITBUCKET_URL": "https://your-bitbucket-server.com",
+        "BITBUCKET_TOKEN": "your-personal-access-token",
+        "BITBUCKET_DEFAULT_PROJECT": "PROJECT_KEY"
+      }
+    }
+  }
+}
+```
+
+#### Claude Code (CLI)
+```bash
+claude mcp add bitbucket -e BITBUCKET_URL="https://your-bitbucket-server.com" -e BITBUCKET_TOKEN="your-token" -- npx -y github:yashkolte3/bitbucket-server-mcp
+```
+
+#### Google Antigravity (`mcp_config.json`)
+```json
+{
+  "mcpServers": {
+    "bitbucket": {
+      "command": "npx",
+      "args": ["-y", "github:yashkolte3/bitbucket-server-mcp"],
+      "env": {
+        "BITBUCKET_URL": "https://your-bitbucket-server.com",
+        "BITBUCKET_TOKEN": "your-personal-access-token"
+      }
+    }
+  }
+}
+```
+
+#### VS Code / Cursor (`mcp.json`)
+```json
+{
+  "mcpServers": {
+    "bitbucket": {
+      "command": "npx",
+      "args": ["-y", "github:yashkolte3/bitbucket-server-mcp"],
+      "env": {
+        "BITBUCKET_URL": "https://your-bitbucket-server.com",
+        "BITBUCKET_TOKEN": "your-personal-access-token"
+      }
+    }
+  }
+}
+```
+
+### Option B: Local Clone
+
+If you clone and build this repository locally:
 
 ```json
 {
   "mcpServers": {
     "bitbucket": {
       "command": "node",
-      "args": ["/path/to/bitbucket-server/build/index.js"],
+      "args": ["/absolute/path/to/bitbucket-server-mcp/build/index.js"],
       "env": {
         "BITBUCKET_URL": "https://your-bitbucket-server.com",
-        // Authentication (choose one):
-        // Option 1: Personal Access Token
-        "BITBUCKET_TOKEN": "your-access-token",
-        // Option 2: Username/Password
-        "BITBUCKET_USERNAME": "your-username",
-        "BITBUCKET_PASSWORD": "your-password",
-        // Optional: Default project
-        "BITBUCKET_DEFAULT_PROJECT": "your-default-project"
+        "BITBUCKET_TOKEN": "your-personal-access-token"
       }
     }
   }
 }
 ```
+
 
 ### Environment Variables
 
@@ -818,3 +871,144 @@ Header-Name=value,Another-Header=value2
   }
 }
 ```
+
+## Remote Access via HTTP Streamable Transport
+
+The server supports remote MCP communication via the standard **MCP Streamable HTTP Transport** (`StreamableHTTPServerTransport`), enabling centralized or multi-user deployments accessible over HTTP/SSE.
+
+### Starting in HTTP Mode
+
+You can start the server in HTTP mode using either CLI arguments or environment variables:
+
+**Using npm scripts:**
+```bash
+npm run start:http
+```
+
+**Using CLI flags:**
+```bash
+node build/index.js --transport=http --port=3000 --host=0.0.0.0
+```
+
+**Using environment variables:**
+```bash
+MCP_TRANSPORT=http PORT=3000 node build/index.js
+```
+
+### Environment Variables & CLI Options
+
+| Option / Variable | Flag | Default | Description |
+|-------------------|------|---------|-------------|
+| `MCP_TRANSPORT` | `--transport` | `stdio` | Transport mechanism: `stdio` or `http` |
+| `PORT` | `--port` | `3000` | HTTP port when running in `http` mode |
+| `HOST` | `--host` | `0.0.0.0` | Bind host when running in `http` mode |
+| `BITBUCKET_URL` | - | *(Required)* | Base URL of the Bitbucket Server/Data Center instance |
+| `BITBUCKET_TOKEN` | - | *(Optional)* | Default fallback PAT if client does not provide one |
+
+### Authentication & Per-Client PAT
+
+When running over HTTP, the server provides flexible authentication:
+
+1. **Per-Client PAT (Authorization Header)**: Each client can pass their own personal Bitbucket access token via standard HTTP headers:
+   ```http
+   Authorization: Bearer <bitbucket_personal_access_token>
+   ```
+   *(Alternatively, `X-Bitbucket-Token: <token>` is also accepted).*
+
+2. **Automatic Fallback to Default PAT**: If a client does not supply an `Authorization` header, the server automatically falls back to `BITBUCKET_TOKEN` configured in the server environment.
+
+3. **Multi-User / Shared Server Setup**: You can run the server **without** setting `BITBUCKET_TOKEN`. In this mode, each user/client must provide their own PAT, preventing cross-user credential sharing. If no token is provided by the client or server, a `401 Unauthorized` JSON-RPC error is returned.
+
+### Endpoints
+
+- `POST /mcp` (or `POST /`): Handles JSON-RPC requests (e.g., `initialize`, `tools/list`, `tools/call`). For subsequent requests after initialization, pass `mcp-session-id: <session-id>`.
+- `GET /mcp` (or `GET /` with `Accept: text/event-stream`): SSE event stream for server notifications.
+- `DELETE /mcp`: Closes and cleans up the active session.
+- `GET /health`: Returns JSON health status, active session count, and configuration metadata.
+
+### Connecting Remote MCP Clients
+
+#### MCP Inspector
+```bash
+npx @modelcontextprotocol/inspector --transport streamableHttp --url http://localhost:3000/mcp
+```
+
+#### Docker Deployment
+
+**Using Docker Compose (Recommended):**
+
+1. Edit `.env` with your Bitbucket URL and optional default PAT:
+   ```bash
+   cp .env.example .env   # (or edit the included .env directly)
+   ```
+2. Start the container:
+   ```bash
+   docker compose up -d --build
+   ```
+3. Check container logs:
+   ```bash
+   docker compose logs -f
+   ```
+4. Stop the container:
+   ```bash
+   docker compose down
+   ```
+
+**Using Standalone Docker:**
+```bash
+docker build -t bitbucket-server-mcp .
+docker run -p 3000:3000 \
+  -e MCP_TRANSPORT=http \
+  -e BITBUCKET_URL=https://bitbucket.example.com \
+  -e BITBUCKET_TOKEN=optional-fallback-pat \
+  bitbucket-server-mcp
+```
+
+**Using Pre-built Container (GitHub Container Registry):**
+```bash
+docker run -p 3000:3000 \
+  -e MCP_TRANSPORT=http \
+  -e BITBUCKET_URL=https://bitbucket.example.com \
+  -e BITBUCKET_TOKEN=optional-fallback-pat \
+  ghcr.io/yashkolte3/bitbucket-server-mcp:latest
+```
+
+#### Connecting Clients to Remote HTTP Server
+
+When hosting the server on a remote VM or container, clients supporting HTTP/SSE transport can connect directly:
+
+```json
+{
+  "mcpServers": {
+    "bitbucket": {
+      "url": "http://your-server-host:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer your-bitbucket-personal-access-token"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Contributing
+
+Contributions, issues, and feature requests are welcome!
+- Check out the [Contributing Guidelines](CONTRIBUTING.md).
+- Open an issue on [GitHub Issues](https://github.com/yashkolte3/bitbucket-server-mcp/issues).
+- Submit a pull request following our [Pull Request Guidelines](.github/PULL_REQUEST_TEMPLATE.md).
+
+---
+
+## License & Attribution
+
+This project is licensed under the [Apache License 2.0](LICENSE).
+
+### Attribution
+- Originally created by [@garc33](https://github.com/garc33) in [garc33/bitbucket-server-mcp](https://github.com/garc33/bitbucket-server-mcp).
+- Maintained and expanded by [Yash Kolte](https://github.com/yashkolte3) with MCP Streamable HTTP transport, multi-client bearer auth, containerization, and advanced Bitbucket Data Center tooling.
+- See [NOTICE](NOTICE) for additional legal details.
+
+
+

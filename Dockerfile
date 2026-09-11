@@ -21,8 +21,10 @@ COPY --from=builder /app/package.json /app/package-lock.json /app/
 # Install only production dependencies
 RUN npm ci --omit=dev
 
-# Environment variables (replace with your actual values)
-ENV BITBUCKET_URL=https://your-bitbucket-server.com
-ENV BITBUCKET_TOKEN=your-access-token
+# Default configuration (provide BITBUCKET_URL and optional BITBUCKET_TOKEN at runtime via -e)
+ENV MCP_TRANSPORT=stdio
+ENV PORT=3000
+
+EXPOSE 3000
 
 ENTRYPOINT ["node", "build/index.js"]
