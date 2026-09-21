@@ -211,9 +211,12 @@ export class BitbucketServer {
     const rawBaseUrl = (options?.baseUrl ?? process.env.BITBUCKET_URL ?? '').trim().replace(/\/+$/, '');
     const cleanBaseUrl = rawBaseUrl.replace(/\/rest\/api\/1\.0$/, '');
 
+    const rawToken = options?.token ?? process.env.BITBUCKET_TOKEN;
+    const cleanToken = rawToken ? rawToken.trim().replace(/^Bearer\s+/i, '') : undefined;
+
     this.config = {
       baseUrl: cleanBaseUrl,
-      token: options?.token ?? process.env.BITBUCKET_TOKEN,
+      token: cleanToken,
       username: options?.username ?? process.env.BITBUCKET_USERNAME,
       password: options?.password ?? process.env.BITBUCKET_PASSWORD,
       defaultProject: options?.defaultProject ?? process.env.BITBUCKET_DEFAULT_PROJECT,

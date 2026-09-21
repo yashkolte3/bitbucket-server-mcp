@@ -137,7 +137,7 @@ export function createHttpApp(options?: HttpServerOptions): Express {
     // Case 2: New session initialization
     if (checkIsInitializeRequest(req.body)) {
       const clientToken = extractClientToken(req);
-      const defaultToken = process.env.BITBUCKET_TOKEN;
+      const defaultToken = process.env.BITBUCKET_TOKEN?.trim()?.replace(/^Bearer\s+/i, '');
       const effectiveToken = clientToken || defaultToken;
 
       const hasUsernamePassword = Boolean(
