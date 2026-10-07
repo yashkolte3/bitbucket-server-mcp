@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { BitbucketServer, BitbucketServerOptions, logger } from './index.js';
+import { requestContextScope } from './context.js';
 
 export interface SessionContext {
   transport: StreamableHTTPServerTransport;
@@ -101,167 +102,186 @@ export function createHttpApp(options?: HttpServerOptions): Express {
 
   // POST handler for /mcp and root /
   const handlePost = async (req: Request, res: Response): Promise<void> => {
-    const sessionId = (req.headers['mcp-session-id'] as string | undefined) ||
-      (req.query?.sessionId as string | undefined);
+    const clientToken = extractClientToken(req);
+    const requestId = (req.headers['x-request-id'] as string) || randomUUID();
+    const clientIp = req.ip;
 
-    // Case 1: Existing session continuation
-    if (sessionId) {
-      const session = sessions.get(sessionId);
-      if (!session) {
-        res.status(404).json({
-          jsonrpc: '2.0',
-          error: {
-            code: -32001,
-            message: 'Session not found or expired',
-          },
-          id: null,
-        });
-        return;
-      }
+    await requestContextScope.run(
+      { token: clientToken, requestId, clientIp, timestamp: Date.now() },
+      async () => {
+        const sessionId = (req.headers['mcp-session-id'] as string | undefined) ||
+          (req.query?.sessionId as string | undefined);
 
-      try {
-        await session.transport.handleRequest(req, res, req.body);
-      } catch (error) {
-        logger.error('[HTTP] Error handling request for session ' + sessionId, error);
-        if (!res.headersSent) {
-          res.status(500).json({
-            jsonrpc: '2.0',
-            error: { code: -32603, message: 'Internal server error' },
-            id: null,
-          });
+        // Case 1: Existing session continuation
+        if (sessionId) {
+          const session = sessions.get(sessionId);
+          if (!session) {
+            res.status(404).json({
+              jsonrpc: '2.0',
+              error: {
+                code: -32001,
+                message: 'Session not found or expired',
+              },
+              id: null,
+            });
+            return;
+          }
+
+          try {
+            await session.transport.handleRequest(req, res, req.body);
+          } catch (error) {
+            logger.error('[HTTP] Error handling request for session ' + sessionId, error);
+            if (!res.headersSent) {
+              res.status(500).json({
+                jsonrpc: '2.0',
+                error: { code: -32603, message: 'Internal server error' },
+                id: null,
+              });
+            }
+          }
+          return;
         }
-      }
-      return;
-    }
 
-    // Case 2: New session initialization
-    if (checkIsInitializeRequest(req.body)) {
-      const clientToken = extractClientToken(req);
-      const defaultToken = process.env.BITBUCKET_TOKEN?.trim()?.replace(/^Bearer\s+/i, '');
-      const effectiveToken = clientToken || defaultToken;
+        // Case 2: New session initialization
+        if (checkIsInitializeRequest(req.body)) {
+          const defaultToken = process.env.BITBUCKET_TOKEN?.trim()?.replace(/^Bearer\s+/i, '');
+          const effectiveToken = clientToken || defaultToken;
 
-      const hasUsernamePassword = Boolean(
-        process.env.BITBUCKET_USERNAME && process.env.BITBUCKET_PASSWORD
-      );
+          const hasUsernamePassword = Boolean(
+            process.env.BITBUCKET_USERNAME && process.env.BITBUCKET_PASSWORD
+          );
 
-      // Enforce credentials presence
-      if (!effectiveToken && !hasUsernamePassword) {
-        res.status(401).json({
+          // Enforce credentials presence (unless explicitly allowed via BITBUCKET_REQUIRE_AUTH=false)
+          const requireAuth = process.env.BITBUCKET_REQUIRE_AUTH !== 'false';
+          if (requireAuth && !effectiveToken && !hasUsernamePassword) {
+            res.status(401).json({
+              jsonrpc: '2.0',
+              error: {
+                code: -32000,
+                message:
+                  'Unauthorized: Bitbucket PAT is required via Authorization header (Bearer <token>) or server BITBUCKET_TOKEN configuration',
+              },
+              id: null,
+            });
+            return;
+          }
+
+          try {
+            const serverOptions: BitbucketServerOptions = {
+              token: effectiveToken,
+              defaultProject: options?.defaultProject,
+              readOnly: options?.readOnly,
+              requireAuth: requireAuth && !effectiveToken && !hasUsernamePassword,
+            };
+
+            const bbServer = new BitbucketServer(serverOptions);
+
+            const transport = new StreamableHTTPServerTransport({
+              sessionIdGenerator: () => randomUUID(),
+              onsessioninitialized: (newSessionId: string) => {
+                sessions.set(newSessionId, {
+                  transport,
+                  server: bbServer,
+                  token: effectiveToken,
+                  createdAt: new Date(),
+                });
+                logger.info(`[HTTP] Initialized MCP session: ${newSessionId} (custom PAT: ${Boolean(clientToken)})`);
+              },
+              onsessionclosed: (closedSessionId: string) => {
+                sessions.delete(closedSessionId);
+                logger.info(`[HTTP] Closed MCP session: ${closedSessionId}`);
+              },
+            });
+
+            transport.onclose = () => {
+              if (transport.sessionId) {
+                sessions.delete(transport.sessionId);
+                logger.info(`[HTTP] MCP transport closed for session: ${transport.sessionId}`);
+              }
+            };
+
+            await bbServer.connect(transport);
+            await transport.handleRequest(req, res, req.body);
+          } catch (error) {
+            logger.error('[HTTP] Error initializing MCP session', error);
+            if (!res.headersSent) {
+              res.status(500).json({
+                jsonrpc: '2.0',
+                error: {
+                  code: -32603,
+                  message: error instanceof Error ? error.message : 'Failed to initialize MCP session',
+                },
+                id: null,
+              });
+            }
+          }
+          return;
+        }
+
+        // Case 3: Missing session ID and not an initialize request
+        res.status(400).json({
           jsonrpc: '2.0',
           error: {
             code: -32000,
-            message:
-              'Unauthorized: Bitbucket PAT is required via Authorization header (Bearer <token>) or server BITBUCKET_TOKEN configuration',
+            message: 'Bad Request: Mcp-Session-Id header is required for non-initialization requests',
           },
           id: null,
         });
-        return;
       }
-
-      try {
-        const serverOptions: BitbucketServerOptions = {
-          token: effectiveToken,
-          defaultProject: options?.defaultProject,
-          readOnly: options?.readOnly,
-        };
-
-        const bbServer = new BitbucketServer(serverOptions);
-
-        const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (newSessionId: string) => {
-            sessions.set(newSessionId, {
-              transport,
-              server: bbServer,
-              token: effectiveToken,
-              createdAt: new Date(),
-            });
-            logger.info(`[HTTP] Initialized MCP session: ${newSessionId} (custom PAT: ${Boolean(clientToken)})`);
-          },
-          onsessionclosed: (closedSessionId: string) => {
-            sessions.delete(closedSessionId);
-            logger.info(`[HTTP] Closed MCP session: ${closedSessionId}`);
-          },
-        });
-
-        transport.onclose = () => {
-          if (transport.sessionId) {
-            sessions.delete(transport.sessionId);
-            logger.info(`[HTTP] MCP transport closed for session: ${transport.sessionId}`);
-          }
-        };
-
-        await bbServer.connect(transport);
-        await transport.handleRequest(req, res, req.body);
-      } catch (error) {
-        logger.error('[HTTP] Error initializing MCP session', error);
-        if (!res.headersSent) {
-          res.status(500).json({
-            jsonrpc: '2.0',
-            error: {
-              code: -32603,
-              message: error instanceof Error ? error.message : 'Failed to initialize MCP session',
-            },
-            id: null,
-          });
-        }
-      }
-      return;
-    }
-
-    // Case 3: Missing session ID and not an initialize request
-    res.status(400).json({
-      jsonrpc: '2.0',
-      error: {
-        code: -32000,
-        message: 'Bad Request: Mcp-Session-Id header is required for non-initialization requests',
-      },
-      id: null,
-    });
+    );
   };
 
   // GET handler for SSE stream on /mcp and root /
   const handleGet = async (req: Request, res: Response): Promise<void> => {
-    const sessionId = (req.headers['mcp-session-id'] as string | undefined) ||
-      (req.query?.sessionId as string | undefined);
+    const clientToken = extractClientToken(req);
+    const requestId = (req.headers['x-request-id'] as string) || randomUUID();
+    const clientIp = req.ip;
 
-    if (!sessionId) {
-      res.status(400).json({
-        jsonrpc: '2.0',
-        error: {
-          code: -32000,
-          message: 'Bad Request: Mcp-Session-Id header is required',
-        },
-        id: null,
-      });
-      return;
-    }
+    await requestContextScope.run(
+      { token: clientToken, requestId, clientIp, timestamp: Date.now() },
+      async () => {
+        const sessionId = (req.headers['mcp-session-id'] as string | undefined) ||
+          (req.query?.sessionId as string | undefined);
 
-    const session = sessions.get(sessionId);
-    if (!session) {
-      res.status(404).json({
-        jsonrpc: '2.0',
-        error: {
-          code: -32001,
-          message: 'Session not found or expired',
-        },
-        id: null,
-      });
-      return;
-    }
+        if (!sessionId) {
+          res.status(400).json({
+            jsonrpc: '2.0',
+            error: {
+              code: -32000,
+              message: 'Bad Request: Mcp-Session-Id header is required',
+            },
+            id: null,
+          });
+          return;
+        }
 
-    try {
-      await session.transport.handleRequest(req, res);
-    } catch (error) {
-      logger.error('[HTTP] Error in SSE stream for session ' + sessionId, error);
-      if (!res.headersSent) {
-        res.status(500).json({
-          jsonrpc: '2.0',
-          error: { code: -32603, message: 'Internal server error' },
-          id: null,
-        });
+        const session = sessions.get(sessionId);
+        if (!session) {
+          res.status(404).json({
+            jsonrpc: '2.0',
+            error: {
+              code: -32001,
+              message: 'Session not found or expired',
+            },
+            id: null,
+          });
+          return;
+        }
+
+        try {
+          await session.transport.handleRequest(req, res);
+        } catch (error) {
+          logger.error('[HTTP] Error in SSE stream for session ' + sessionId, error);
+          if (!res.headersSent) {
+            res.status(500).json({
+              jsonrpc: '2.0',
+              error: { code: -32603, message: 'Internal server error' },
+              id: null,
+            });
+          }
+        }
       }
-    }
+    );
   };
 
   // DELETE handler for closing session on /mcp and root /

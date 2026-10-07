@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-07
+
+### Added
+- **Stateless Request Isolation (`IRequestContextScope`)**: Implemented per-request async context scoping using Node.js `AsyncLocalStorage` (`node:async_hooks`), guaranteeing zero token cross-talk across concurrent HTTP requests.
+- **Hierarchical Authentication Strategy (`HierarchicalAuthResolver`)**: Implemented strict credential resolution strategy prioritizing per-call client tokens over session and server defaults.
+- **Connection-Pooled HTTP/HTTPS Transport (`BitbucketHttpClient`)**: Configured dedicated `https.Agent` keep-alive connection pooling (`maxSockets: 100`, `keepAlive: true`) to prevent socket starvation under heavy enterprise load.
+- **Defense-in-Depth Recursive Log Sanitization**: Added cycle-safe Winston formatting with `WeakSet` traversal to eliminate token leakage (`Bearer ...`, `BBDC-...`, headers, passwords) and prevent circular-reference crashes.
+- **Centralized Deployment Support**: Added `BITBUCKET_REQUIRE_AUTH` configuration enabling zero-credential server hosting for multi-tenant gateways with client-supplied authentication.
+- **Concurrency Test Suite**: Added 19 comprehensive unit and concurrency stress tests simulating 50+ simultaneous interleaved requests.
+
+### Changed
+- Refactored `BitbucketServer` to conform strictly to SOLID principles with decoupled authentication and client abstractions.
+- Sanitized error handling in tool handlers to strip raw Axios headers before logging.
+
+---
+
 ## [1.1.0] - 2026-09-11
 
 ### Added

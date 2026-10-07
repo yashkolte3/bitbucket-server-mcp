@@ -8,7 +8,10 @@ A feature-rich Model Context Protocol (MCP) server for **Bitbucket Server & Data
 
 ### 🌟 Key Highlights
 - **Dual Transport Support**: Run locally via standard `stdio` or host remotely via **MCP Streamable HTTP / SSE** (`--transport=http`).
-- **Multi-Client & Dynamic Authentication**: Connect multiple AI clients over HTTP with per-client personal access tokens (via `Authorization: Bearer <token>`).
+- **Stateless Multi-Tenant Request Isolation**: High-concurrency thread-safety using Node.js `AsyncLocalStorage` to isolate client tokens per request with zero cross-talk.
+- **Dynamic Per-Call Authentication**: Pass Personal Access Tokens per tool call (`Authorization: Bearer <token>`) without storing credentials server-side.
+- **Zero Token Leakage in Logs**: Defense-in-depth cycle-safe log sanitizer that recursively strips Bearer/BBDC tokens and sensitive headers.
+- **Connection-Pooled HTTP/HTTPS Transport**: Configured with keep-alive `https.Agent` connection pooling (up to 100 concurrent sockets) to prevent socket starvation.
 - **Complete PR Lifecycle**: List, create, review, comment (inline & general), approve, merge, or decline pull requests.
 - **Advanced Code & File Search**: Search code, view file contents, and browse repository trees.
 - **Zero Trust Ready**: Pass custom HTTP headers (`BITBUCKET_CUSTOM_HEADERS`) for Cloudflare Access, corporate proxies, or service tokens.
@@ -996,12 +999,13 @@ The following environment variables configure the container and server:
 | `BITBUCKET_LOG_PATH` | - | `~/.bitbucket-server-mcp/bitbucket.log` | Optional | Custom file path for Winston structured logs. |
 | `BITBUCKET_USERNAME` | - | *None* | Optional | Basic auth username (fallback only used if no token is available). |
 | `BITBUCKET_PASSWORD` | - | *None* | Optional | Basic auth password (fallback only used if no token is available). |
+| `BITBUCKET_REQUIRE_AUTH` | - | `true` | Optional | Set to `false` to permit unauthenticated MCP session initialization for central multi-user gateways (authentication is then resolved per individual tool call). |
 
 ---
 
 ## Deployment Models & Authentication Fallback Hierarchy
 
-When running remotely over HTTP, authentication is dynamically evaluated on **every new session initialization (`POST /mcp` with `initialize` request)**.
+When running remotely over HTTP, authentication is dynamically evaluated on **every individual tool call** using Node.js `AsyncLocalStorage` (`IRequestContextScope`), guaranteeing 100% thread-safe request isolation with zero cross-talk between concurrent developers.
 
 ### Credential Resolution Hierarchy
 

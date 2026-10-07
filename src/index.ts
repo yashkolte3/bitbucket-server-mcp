@@ -10,29 +10,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import axios, { AxiosInstance } from 'axios';
 import { parseCustomHeaders } from "./headers.js";
-import winston from 'winston';
 import path from 'path';
-import os from 'os';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
+import { logger, extractSafeErrorMeta } from './logger.js';
+import { HierarchicalAuthResolver, IAuthenticationResolver } from './auth.js';
+import { createConnectionPoolAgents } from './client.js';
 
-// Resolve log file path: BITBUCKET_LOG_PATH env var > default (~/.bitbucket-server-mcp/bitbucket.log)
-const defaultLogDir = path.join(os.homedir(), '.bitbucket-server-mcp');
-const logFilePath = process.env.BITBUCKET_LOG_PATH || path.join(defaultLogDir, 'bitbucket.log');
-
-// Ensure log directory exists
-const logDir = path.dirname(logFilePath);
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir, { recursive: true });
-}
-
-export const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  transports: [
-    new winston.transports.File({ filename: logFilePath })
-  ]
-});
+export { logger };
 
 interface BitbucketActivity {
   action: string;
@@ -48,6 +32,7 @@ interface BitbucketConfig {
   maxLinesPerFile?: number;
   readOnly?: boolean;
   customHeaders?: Record<string, string>;
+  requireAuth?: boolean;
 }
 
 interface RepositoryParams {
@@ -187,12 +172,15 @@ export interface BitbucketServerOptions {
   maxLinesPerFile?: number;
   readOnly?: boolean;
   customHeaders?: Record<string, string>;
+  authResolver?: IAuthenticationResolver;
+  requireAuth?: boolean;
 }
 
 export class BitbucketServer {
   private readonly server: Server;
   private readonly api: AxiosInstance;
   private readonly config: BitbucketConfig;
+  private readonly authResolver: IAuthenticationResolver;
 
   constructor(options?: BitbucketServerOptions) {
     this.server = new Server(
@@ -213,31 +201,45 @@ export class BitbucketServer {
 
     const rawToken = options?.token ?? process.env.BITBUCKET_TOKEN;
     const cleanToken = rawToken ? rawToken.trim().replace(/^Bearer\s+/i, '') : undefined;
+    const username = options?.username ?? process.env.BITBUCKET_USERNAME;
+    const password = options?.password ?? process.env.BITBUCKET_PASSWORD;
+    const requireAuth = options?.requireAuth ?? (process.env.BITBUCKET_REQUIRE_AUTH !== 'false');
+
+    this.authResolver = options?.authResolver ?? new HierarchicalAuthResolver(
+      cleanToken,
+      username,
+      password
+    );
 
     this.config = {
       baseUrl: cleanBaseUrl,
       token: cleanToken,
-      username: options?.username ?? process.env.BITBUCKET_USERNAME,
-      password: options?.password ?? process.env.BITBUCKET_PASSWORD,
+      username,
+      password,
       defaultProject: options?.defaultProject ?? process.env.BITBUCKET_DEFAULT_PROJECT,
       maxLinesPerFile: process.env.BITBUCKET_DIFF_MAX_LINES_PER_FILE 
         ? parseInt(process.env.BITBUCKET_DIFF_MAX_LINES_PER_FILE, 10) 
         : undefined,
       readOnly: options?.readOnly ?? process.env.BITBUCKET_READ_ONLY === 'true',
       customHeaders: options?.customHeaders ?? parseCustomHeaders(process.env.BITBUCKET_CUSTOM_HEADERS),
+      requireAuth,
     };
 
     if (!this.config.baseUrl) {
       throw new Error('BITBUCKET_URL is required');
     }
 
-    if (!this.config.token && !(this.config.username && this.config.password)) {
+    if (this.config.requireAuth && !this.config.token && !(this.config.username && this.config.password)) {
       throw new Error('Either BITBUCKET_TOKEN or BITBUCKET_USERNAME/PASSWORD is required');
     }
+
+    const { httpAgent, httpsAgent } = createConnectionPoolAgents();
 
     // Configuration de l'instance Axios
     this.api = axios.create({
       baseURL: `${this.config.baseUrl}/rest/api/1.0`,
+      httpAgent,
+      httpsAgent,
       headers: {
         ...(this.config.token ? { Authorization: `Bearer ${this.config.token}` } : {}),
         ...this.config.customHeaders,
@@ -246,6 +248,25 @@ export class BitbucketServer {
         ? { username: this.config.username, password: this.config.password }
         : undefined,
     });
+
+    if (this.api.interceptors?.request?.use) {
+      this.api.interceptors.request.use((reqConfig) => {
+        const creds = this.authResolver.resolve();
+        if (creds.type === 'bearer' && creds.token) {
+          if (!reqConfig.headers) {
+            reqConfig.headers = new axios.AxiosHeaders();
+          }
+          if (typeof reqConfig.headers.set === 'function') {
+            reqConfig.headers.set('Authorization', `Bearer ${creds.token}`);
+          } else {
+            (reqConfig.headers as Record<string, string>)['Authorization'] = `Bearer ${creds.token}`;
+          }
+        } else if (creds.type === 'basic' && creds.username && creds.password) {
+          reqConfig.auth = { username: creds.username, password: creds.password };
+        }
+        return reqConfig;
+      });
+    }
 
     this.setupToolHandlers();
     
@@ -1051,11 +1072,11 @@ export class BitbucketServer {
             );
         }
       } catch (error) {
-        logger.error('Tool execution error', { error });
+        logger.error('Tool execution error', extractSafeErrorMeta(error));
         if (axios.isAxiosError(error)) {
           throw new McpError(
             ErrorCode.InternalError,
-            `Bitbucket API error: ${error.response?.data.message ?? error.message}`
+            `Bitbucket API error: ${error.response?.data?.message ?? error.message}`
           );
         }
         throw error;
