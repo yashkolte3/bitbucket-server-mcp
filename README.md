@@ -8,6 +8,8 @@ A feature-rich Model Context Protocol (MCP) server for **Bitbucket Server & Data
 
 ### 🌟 Key Highlights
 - **Dual Transport Support**: Run locally via standard `stdio` or host remotely via **MCP Streamable HTTP / SSE** (`--transport=http`).
+- **SEP-1303 Error Handling & Agent Self-Correction**: Compliant with official [SEP-1303](https://modelcontextprotocol.io/seps/1303-input-validation-errors-as-tool-execution-errors). Input validation & Bitbucket API errors are returned as tool execution errors (`isError: true`), allowing AI agents to read error messages, correct parameters, and retry without workflow halts.
+- **Dynamic Multi-Project Tool Schemas**: Tool schemas automatically mark `project` as mandatory when no default project is configured, ensuring AI agents never omit project keys in multi-project deployments.
 - **Stateless Multi-Tenant Request Isolation**: High-concurrency thread-safety using Node.js `AsyncLocalStorage` to isolate client tokens per request with zero cross-talk.
 - **Dynamic Per-Call Authentication**: Pass Personal Access Tokens per tool call (`Authorization: Bearer <token>`) without storing credentials server-side.
 - **Zero Token Leakage in Logs**: Defense-in-depth cycle-safe log sanitizer that recursively strips Bearer/BBDC tokens and sensitive headers.
@@ -78,7 +80,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project`: Bitbucket project key (optional, if omitted lists across accessible projects or uses BITBUCKET_DEFAULT_PROJECT)
 - `limit`: Number of repositories to return (default: 25, max: 1000)
 - `start`: Start index for pagination (default: 0)
 
@@ -95,7 +97,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `title` (required): Clear, descriptive PR title
 - `description`: Detailed description with context (supports Markdown)
@@ -118,7 +120,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID to update
 - `title`: New title (if omitted, current title is preserved)
@@ -138,7 +140,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 
@@ -155,7 +157,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 - `message`: Custom merge commit message
@@ -177,7 +179,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 - `message`: Reason for declining (helpful for author feedback)
@@ -196,7 +198,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 - `text` (required): Comment content (supports Markdown)
@@ -218,7 +220,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 - `contextLines`: Context lines around changes (default: 10)
@@ -259,7 +261,7 @@ When a file exceeds the `maxLinesPerFile` limit, it shows:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 
@@ -276,7 +278,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 
@@ -320,7 +322,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `filePath` (required): Path to the file in the repository
 - `branch`: Branch or commit hash (optional, defaults to main/master)
@@ -340,7 +342,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `path`: Directory path to browse (optional, defaults to root)
 - `branch`: Branch or commit hash (optional, defaults to main/master)
@@ -360,7 +362,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `state`: Filter by PR state — `OPEN` (default), `MERGED`, `DECLINED`, or `ALL`
 - `author`: Filter by author username (exact match)
@@ -381,7 +383,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `filterText`: Filter branches by name (case-insensitive partial match)
 - `limit`: Number of branches to return (default: 25, max: 1000)
@@ -400,7 +402,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `branch`: Branch name to list commits from (defaults to the repository's default branch)
 - `author`: Filter by author name or email (case-insensitive partial match, applied client-side)
@@ -419,7 +421,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `branch` (required): Branch name to delete
 
@@ -435,7 +437,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID to approve
 
@@ -451,7 +453,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID to remove approval from
 
@@ -467,7 +469,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID the comment belongs to
 - `commentId` (required): ID of the comment to edit
@@ -485,7 +487,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID the comment belongs to
 - `commentId` (required): ID of the comment to delete
@@ -503,7 +505,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 - `commentText`: Optional overview comment for the review
@@ -522,7 +524,7 @@ Parameters:
 
 Parameters:
 
-- `project`: Bitbucket project key (optional, uses BITBUCKET_DEFAULT_PROJECT if not provided)
+- `project` (required): Bitbucket project key (e.g., "PROJ"). Required to identify the repository (or uses BITBUCKET_DEFAULT_PROJECT if configured)
 - `repository` (required): Repository slug
 - `prId` (required): Pull request ID
 
@@ -992,7 +994,7 @@ The following environment variables configure the container and server:
 | `PORT` | `--port` | `3000` | No | Port for the HTTP server to listen on when running in `http` mode. |
 | `HOST` | `--host` | `0.0.0.0` | No | Network interface to bind to. `0.0.0.0` allows connections from outside the Docker container. |
 | `BITBUCKET_TOKEN` | - | *None* | Optional | Server-wide fallback Personal Access Token (PAT). Used when a client does not provide an `Authorization` header. |
-| `BITBUCKET_DEFAULT_PROJECT` | - | *None* | Optional | Default Bitbucket project key. Used when tools are invoked without an explicit `project` argument. |
+| `BITBUCKET_DEFAULT_PROJECT` | - | *None* | Optional *(Deprecated)* | **Deprecated:** Default Bitbucket project key. In central multi-project deployments, leave unset so tools dynamically enforce explicit `project` parameters. If set, repository/PR tools treat `project` as optional and fallback to this value. |
 | `BITBUCKET_READ_ONLY` | - | `false` | Optional | Set to `true` to block all mutating actions (PR creation, merging, approvals, commenting, branch deletion) at protocol level. |
 | `BITBUCKET_DIFF_MAX_LINES_PER_FILE` | - | *Unlimited* | Optional | Global cap on lines displayed per file in `get_diff`. Prevents huge generated files from exhausting AI context windows. Overridable per tool call via `maxLinesPerFile`. |
 | `BITBUCKET_CUSTOM_HEADERS` | - | *None* | Optional | Comma-separated key-value pairs (`Header1=Value1,Header2=Value2`) attached to all outgoing requests to Bitbucket. Used for Cloudflare Access service tokens, corporate proxies, or gateway auth. |
@@ -1073,10 +1075,42 @@ Depending on your team structure and security policy, choose one of three deploy
 
 | Feature | Primary Source | Fallback 1 | Fallback 2 / Default |
 |---|---|---|---|
-| **Project Key** | Tool call `project` parameter | `BITBUCKET_DEFAULT_PROJECT` env var | If both omitted, tools that operate across projects list all repositories; repo-scoped tools prompt for key |
+| **Project Key** | Tool call `project` parameter | `BITBUCKET_DEFAULT_PROJECT` env var (Deprecated) | When unset (default), tool schemas enforce `project` as mandatory. In tools, missing `project` returns a self-correctable validation error |
 | **Diff Line Limit** | Tool call `maxLinesPerFile` parameter | `BITBUCKET_DIFF_MAX_LINES_PER_FILE` env var | Unlimited (all diff lines returned) |
 | **Authentication** | Client `Authorization: Bearer <token>` | Client `X-Bitbucket-Token: <token>` | Server `BITBUCKET_TOKEN` -> Server Basic Auth -> `401 Unauthorized` |
 | **Read-Only Mode** | `BITBUCKET_READ_ONLY=true` | Parameter / tool-level checks | Read-write allowed by default |
+
+---
+
+## SEP-1303 Error Handling & Agent Self-Correction
+
+This server adheres to [SEP-1303: Input Validation Errors as Tool Execution Errors](https://modelcontextprotocol.io/seps/1303-input-validation-errors-as-tool-execution-errors):
+
+### Why SEP-1303 Matters
+In standard MCP servers without SEP-1303, passing invalid arguments (e.g. omitting a required `project` or providing a non-existent branch) throws a JSON-RPC protocol error (`ErrorCode.InvalidParams`). Most MCP client harnesses (such as Claude Desktop or Cursor) immediately halt conversation execution on protocol errors, denying the AI agent the opportunity to fix its input and retry.
+
+Under SEP-1303:
+- **Protocol Errors (`ErrorCode.MethodNotFound`)**: Strictly reserved for unrecognized tool names.
+- **Tool Execution Errors (`isError: true`)**: Returned for all input validation failures (missing parameters, malformed values) and Bitbucket API errors (400, 401, 403, 404, 500).
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Input validation error: Missing required parameter 'project'. Please specify the project key (use 'list_projects' to discover available projects)."
+    }
+  ],
+  "isError": true
+}
+```
+
+Because this payload is delivered as a regular tool execution result rather than a fatal protocol exception, the LLM agent can inspect the feedback, discover available projects using `list_projects`, correct its parameters, and retry seamlessly.
+
+### Dynamic Multi-Project Schemas
+Tool schemas dynamically adapt depending on whether a server-wide default project is configured:
+- **When `BITBUCKET_DEFAULT_PROJECT` is unset (Recommended)**: All 23 repository and pull request tools mark `'project'` as mandatory in their `required` schema array. This informs the agent upfront that it must specify the project key.
+- **When `BITBUCKET_DEFAULT_PROJECT` is set**: For backwards compatibility, `'project'` remains optional in `required`, and the schema description instructs the agent that it falls back to the default project if omitted.
 
 ---
 

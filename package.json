@@ -1,6 +1,6 @@
 {
   "name": "@yashkolte3/bitbucket-server-mcp",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Bitbucket Server MCP - Model Context Protocol server for Bitbucket Server / Data Center with stdio and Streamable HTTP transports",
   "author": "Yash Kolte",
   "license": "Apache-2.0",

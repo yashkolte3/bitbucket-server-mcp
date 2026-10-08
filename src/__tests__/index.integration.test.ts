@@ -6,18 +6,25 @@ import { BitbucketServer } from "../index.js";
 // Mock axios for Bitbucket API calls
 import { vi } from "vitest";
 
-const mockAxios = {
-  get: vi.fn(),
-  post: vi.fn(),
-  put: vi.fn(),
-  delete: vi.fn(),
-};
+const { mockAxios, isAxiosError } = vi.hoisted(() => {
+  const isAxiosError = vi.fn((err: unknown) => {
+    return Boolean(err && typeof err === "object" && (err as { isAxiosError?: boolean }).isAxiosError);
+  });
+  const mockAxios = {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
+  };
+  return { mockAxios, isAxiosError };
+});
 
 vi.mock("axios", () => ({
   default: {
     create: vi.fn(() => mockAxios),
+    isAxiosError,
   },
-  isAxiosError: vi.fn(),
+  isAxiosError,
 }));
 
 describe("BitbucketServer Integration Tests", () => {
@@ -295,15 +302,16 @@ describe("BitbucketServer Integration Tests", () => {
       await server.connect(serverTransport);
       await client.connect(clientTransport);
 
-      await expect(
-        client.callTool({
-          name: "get_pull_request",
-          arguments: {
-            repository: "my-repo",
-            prId: 1,
-          },
-        }),
-      ).rejects.toThrow();
+      const result = await client.callTool({
+        name: "get_pull_request",
+        arguments: {
+          repository: "my-repo",
+          prId: 1,
+        },
+      });
+      expect(result.isError).toBe(true);
+      const content = result.content as Array<{ type: string; text: string }>;
+      expect(content[0].text).toContain("project");
     });
   });
 
@@ -979,7 +987,7 @@ describe("BitbucketServer Integration Tests", () => {
   });
 
   describe("Error handling", () => {
-    test("should handle API errors", async () => {
+    test("should handle API errors as tool execution errors (SEP-1303)", async () => {
       interface AxiosError extends Error {
         response?: { data: { message: string } };
         isAxiosError: boolean;
@@ -991,16 +999,17 @@ describe("BitbucketServer Integration Tests", () => {
 
       mockAxios.get.mockRejectedValueOnce(error);
 
-      await expect(
-        client.callTool({
-          name: "get_pull_request",
-          arguments: {
-            project: "TEST",
-            repository: "my-repo",
-            prId: 999,
-          },
-        }),
-      ).rejects.toThrow();
+      const result = await client.callTool({
+        name: "get_pull_request",
+        arguments: {
+          project: "TEST",
+          repository: "my-repo",
+          prId: 999,
+        },
+      });
+      expect(result.isError).toBe(true);
+      const content = result.content as Array<{ type: string; text: string }>;
+      expect(content[0].text).toContain("Bitbucket API error");
     });
   });
 });

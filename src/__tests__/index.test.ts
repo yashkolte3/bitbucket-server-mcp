@@ -83,12 +83,12 @@ function makeServer(env: NodeJS.ProcessEnv): void {
 async function callTool(
   toolName: string,
   args: Record<string, unknown>,
-): Promise<{ content: Array<{ type: string; text: string }> }> {
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
   // ListToolsRequestSchema is registered first (index 0), CallToolRequestSchema second (index 1).
   type Handler = (
     req: unknown,
     extra: unknown,
-  ) => Promise<{ content: Array<{ type: string; text: string }> }>;
+  ) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>;
   const handler = mockSetRequestHandler.mock.calls[1]?.[1] as
     | Handler
     | undefined;
@@ -96,7 +96,7 @@ async function callTool(
   return handler(
     { params: { name: toolName, arguments: args } },
     {},
-  ) as Promise<{ content: Array<{ type: string; text: string }> }>;
+  ) as Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>;
 }
 
 const BASE_ENV: NodeJS.ProcessEnv = {
@@ -249,7 +249,7 @@ describe("BitbucketServer", () => {
       expect(JSON.parse(result.content[0].text)).toEqual({ id: 1 });
     });
 
-    test("should throw error when no project is provided or defaulted", async () => {
+    test("should return tool execution error when no project is provided or defaulted", async () => {
       vi.clearAllMocks();
       mockCreate.mockReturnValue({
         get: mockApiGet,
@@ -260,9 +260,9 @@ describe("BitbucketServer", () => {
         BITBUCKET_TOKEN: "tok",
       });
 
-      await expect(
-        callTool("get_pull_request", { repository: "repo", prId: 1 }),
-      ).rejects.toThrow("Project must be provided");
+      const result = await callTool("get_pull_request", { repository: "repo", prId: 1 });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Project must be provided");
     });
 
     test("should merge a pull request", async () => {
@@ -292,20 +292,20 @@ describe("BitbucketServer", () => {
       expect(JSON.parse(result.content[0].text)).toEqual({ state: "MERGED" });
     });
 
-    test("should handle API errors", async () => {
+    test("should handle API errors as tool execution errors (SEP-1303)", async () => {
       mockIsAxiosError.mockReturnValue(true);
       mockApiGet.mockRejectedValueOnce({
         response: { data: { message: "Not found" } },
         message: "Request failed",
       });
 
-      await expect(
-        callTool("get_pull_request", {
-          project: "TEST",
-          repository: "repo",
-          prId: 1,
-        }),
-      ).rejects.toThrow("Bitbucket API error: Not found");
+      const result = await callTool("get_pull_request", {
+        project: "TEST",
+        repository: "repo",
+        prId: 1,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Bitbucket API error: Not found");
     });
   });
 
